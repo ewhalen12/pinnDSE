@@ -8,13 +8,54 @@ import deepxde as dde
 
 from .util import *
 
+
 class MeshGeom(dde.geometry.geometry.Geometry):
-    def __init__(self, op2File):
+    def __init__(self, op2File, thickness=None, center=True, scale=True):
         self.dim = 2
         self.idstr = 'MeshGeom'
+        self.thickness = thickness
         self.mesh, self.resDf = loadOptistructModel(op2File, loadResults=True)
+        
+        if center: 
+            # center at origin
+            self.mesh.points -= np.mean(self.mesh.points, axis=0)
+        if scale:
+            # scale to unit circle
+            self.scale = 1/np.linalg.norm(self.mesh.points, axis=1).max()
+            self.mesh.points *= self.scale
+            self.resDf[['sxx', 'syy', 'sxy', 'vonMises']] /= self.scale
+            
+            
+        # process edges
         self.bndDict = getAllBoundaries(self.mesh)
         self.bndLenDict, self.bndNormDict = processBoundaries(self.bndDict)
+        self.bndAreaDict = {i:thickness*L for i,L in self.bndLenDict.items()}
+        
+    def random_points(self, n, random="pseudo", seed=1234):
+        samples = sampleDomain(self.mesh, n, seed=seed)
+        return samples[:,:2]
+    
+    def random_boundary_points(self, n, bndId, random="pseudo", seed=1234):
+        samples, normals = sampleBoundary(self.bndDict[bndId], n, 
+                                          bndNormals=self.bndNormDict[bndId], 
+                                          seed=1234)
+        return samples[:,:2], normals[:,:2]
+    
+    def sampleRes(self, loc):
+        fieldList = self.resDf.columns
+        pc = pv.PolyData(addZ(loc))
+        msh = self.mesh.copy()
+        
+        for field in fieldList:
+            msh[field] = self.resDf[field]
+
+        pc = pc.sample(msh)
+        interpolatedData = {}
+        for field in fieldList:
+            interpolatedData[field] = pc[field]
+
+        intResDf = pd.DataFrame(interpolatedData)
+        return intResDf
 
 ################################################################################ 
 # load the mesh and results from an OptiStruct-generated OP2 file
@@ -36,12 +77,12 @@ def loadOptistructModel(op2File, loadResults=True):
 # load the mesh from a pyNastran object and convert it to pyvista. Optionally
 # center and scale to unit circle
 # !assumes nodes ids are contiguous and start at 1
-def op2GeomToPv(geom, center=True, scale=True):
+def op2GeomToPv(geom):
     nodeDict = geom.nodes
     elemDict = geom.elements
     vertices = np.array([n.get_position() for nid, n in nodeDict.items()])
-    if center: vertices -= np.mean(vertices, axis=0)
-    if scale: vertices /= np.linalg.norm(vertices, axis=1).max()
+#     if center: vertices -= np.mean(vertices, axis=0)
+#     if scale: vertices /= np.linalg.norm(vertices, axis=1).max()
     faces = np.array([[len(e.nodes)] + [nid-1 for nid in e.nodes] for eid, e in elemDict.items()]).flatten()
     mesh = pv.PolyData(vertices, faces, n_faces=len(elemDict))
     return mesh
@@ -125,3 +166,39 @@ def processBoundaries(bndDict, perp=[0,0,1]):
         bndLenDict[bndId] = L
     
     return bndLenDict, bndNormDict
+
+################################################################################
+# uniformly sample the mesh using Trimesh
+def sampleDomain(mesh, N, seed=1234):
+    tmesh = pyvistaToTrimesh(mesh)
+    np.random.seed(seed)
+    samples, face_index = trimesh.sample.sample_surface_even(tmesh, N)
+    return samples
+
+################################################################################ 
+# convert pyvista mesh to trimesh mesh by triangulating elements
+def pyvistaToTrimesh(mesh):
+    pvTriMesh = pv.PolyDataFilters.triangulate(mesh)
+    faces = pvTriMesh.faces.reshape(-1,4)[:,1:]
+    points = pvTriMesh.points
+    return trimesh.Trimesh(points, faces, process=False)
+
+################################################################################ 
+# convert pyvista mesh to trimesh mesh by triangulating elements
+def sampleBoundary(bnd, N, bndNormals=None, seed=1234):
+    np.random.seed(seed)
+    samples = np.zeros((N,3))
+    normals = np.zeros((N,3))
+        
+    for n in range(N):
+        eid = np.random.choice(range(bnd.n_cells))
+        edge = bnd.extract_cells(eid)
+        vi,vj = edge.points
+        w = np.random.rand()
+        p = w*vi+(1-w)*vj
+        samples[n,:] = p
+        
+        if bndNormals is not None:
+            normals[n,:] = bndNormals[eid,:]
+
+    return samples, normals
