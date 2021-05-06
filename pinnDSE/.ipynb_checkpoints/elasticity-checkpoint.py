@@ -53,23 +53,23 @@ class StrctPDE(dde.data.pde.PDE):
         self.train_aux_vars, self.test_aux_vars = None, None
 
         # sample domain and each boundary
-        domainSamples = self.geom.random_points(num_domain)
-        bndSampleDict = {}
-        bndNormalsDict = {}
+        self.domainSamples = self.geom.random_points(num_domain)
+        self.bndSampleDict = {}
+        self.bndNormalsDict = {}
         for bndId in self.geom.bndDict.keys():
             samples, normals = self.geom.random_boundary_points(num_boundary_dir[bndId], bndId)
-            bndSampleDict[bndId] = samples
-            bndNormalsDict[bndId] = normals
+            self.bndSampleDict[bndId] = samples
+            self.bndNormalsDict[bndId] = normals
     
         # organize by which bc they belong to
-        x_bcs = [bndSampleDict[bc.bndId] for bc in self.bcs] # bcs will have a bndId attribute
-        n_bcs = [bndNormalsDict[bc.bndId] for bc in self.bcs]
+        x_bcs = [self.bndSampleDict[bc.bndId] for bc in self.bcs] # bcs will have a bndId attribute
+        n_bcs = [self.bndNormalsDict[bc.bndId] for bc in self.bcs]
         self.num_bcs = list(map(len, x_bcs))
         self.train_x_bc = (np.vstack(x_bcs) if x_bcs else np.empty([0, self.train_x_all.shape[-1]]))
         self.train_n_bc = (np.vstack(n_bcs) if n_bcs else np.empty([0, self.train_x_all.shape[-1]]))
         
         # create final training arrays
-        self.train_x_all = np.vstack([domainSamples]+list(bndSampleDict.values()))
+        self.train_x_all = np.vstack([self.domainSamples]+list(self.bndSampleDict.values()))
         self.train_x = np.vstack((self.train_x_bc, self.train_x_all)) # stack bc and then all points (contains duplicates)
         self.train_n = np.vstack((self.train_n_bc, np.zeros_like(self.train_x_all)))
         self.train_y = self.soln(self.train_x) if self.soln else None

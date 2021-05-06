@@ -1,13 +1,14 @@
 import numpy as np
 import pandas as pd
 import pyvista as pv
+from time import time
 
 from .util import *
 
 ################################################################################ 
 # plot side-by-side contours of the mesh with specified results and columns
 def plotScalarFields(mesh, resDf, fieldList=['ux', 'uy', 'sxx', 'syy', 'sxy'], cpos='xy', 
-                     showEdges=False, pointSize=4):
+                     showEdges=False, pointSize=4, bar='hor'):
     plotter = pv.Plotter(shape=(1,len(fieldList)), border=False)
     for i,field in enumerate(fieldList):
         plotter.subplot(0,i)
@@ -21,8 +22,12 @@ def plotScalarFields(mesh, resDf, fieldList=['ux', 'uy', 'sxx', 'syy', 'sxy'], c
             # mesh
             plotter.add_mesh(mesh.copy(), scalars=resDf[field], show_edges=showEdges)
             
-        plotter.add_scalar_bar(n_labels=2, label_font_size=10, width=0.1, height=0.3, 
+        if bar=='ver':
+            plotter.add_scalar_bar(n_labels=2, label_font_size=10, width=0.1, height=0.3, 
                                vertical=True, position_x=0.65, fmt="%.1e", color='k')
+        else:
+            plotter.add_scalar_bar(n_labels=2, label_font_size=10, width=0.3, height=0.1, 
+                        font_family='arial', vertical=False, position_x=0.6, fmt="%.1e", color='k')
     
     plotter.show(window_size=(200*len(fieldList),200), cpos=cpos);
     
