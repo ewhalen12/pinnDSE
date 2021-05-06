@@ -38,7 +38,7 @@ class MeshGeom(dde.geometry.geometry.Geometry):
             start = time()
             self.bndDict = getAllBoundaries(self.mesh)
             self.bndLenDict, self.bndNormDict = processBoundaries(self.bndDict)
-            self.bndAreaDict = {i:thickness*L for i,L in self.bndLenDict.items()}
+            self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLenDict.items()}
             print(f'1 total edge processing: {time()-start}')
         else:
             # alternative format load
@@ -47,6 +47,8 @@ class MeshGeom(dde.geometry.geometry.Geometry):
                 setattr(self, key, val)
             self.mesh = pv.read(meshFile)
             self.bndDict = getAllBoundaries(self.mesh)
+            self.bndLenDict, self.bndNormDict = processBoundaries(self.bndDict)
+            self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLenDict.items()}
         
     def random_points(self, n, random="pseudo", seed=1234):
         samples = sampleDomain(self.mesh, n, seed=seed)
