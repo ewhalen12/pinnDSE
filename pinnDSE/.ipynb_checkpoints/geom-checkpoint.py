@@ -36,9 +36,10 @@ class MeshGeom(dde.geometry.geometry.Geometry):
 
             # process edges
             start = time()
-            self.bndDict = getAllBoundaries(self.mesh)
-            self.bndLenDict, self.bndNormDict = processBoundaries(self.bndDict)
-            self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLenDict.items()}
+#             self.bndDict = getAllBoundaries(self.mesh)
+#             self.bndLenDict, self.bndNormDict = processBoundaries(self.bndDict)
+            self.bndDict, self.bndNormsDict, self.bndLensDict = processBoundaries(self.mesh)
+            self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLensDict.items()}
             print(f'1 total edge processing: {time()-start}')
         else:
             # alternative format load
@@ -46,9 +47,8 @@ class MeshGeom(dde.geometry.geometry.Geometry):
             for key, val in temp.__dict__.items():
                 setattr(self, key, val)
             self.mesh = pv.read(meshFile)
-            self.bndDict = getAllBoundaries(self.mesh)
-            self.bndLenDict, self.bndNormDict = processBoundaries(self.bndDict)
-            self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLenDict.items()}
+            self.bndDict, self.bndNormsDict, self.bndLensDict = processBoundaries(self.mesh)
+            self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLensDict.items()}
         
     def random_points(self, n, random="pseudo", seed=1234):
         samples = sampleDomain(self.mesh, n, seed=seed)
@@ -56,7 +56,7 @@ class MeshGeom(dde.geometry.geometry.Geometry):
     
     def random_boundary_points(self, n, bndId, random="pseudo", seed=1234):
         samples, normals = sampleBoundary(self.bndDict[bndId], n, 
-                                          bndNormals=self.bndNormDict[bndId], 
+                                          bndNormals=self.bndNormsDict[bndId], 
                                           seed=1234)
         return samples[:,:2], normals[:,:2]
     
@@ -175,48 +175,50 @@ def transformStressToMatCordSys(stressDf, geom):
 
 ################################################################################
 # convert stresses from the elemental coordinate systems to the global one (slwo)
-def getAllBoundaries(mesh):
+# def getAllBoundaries(mesh):
+#     bndEdges = mesh.extract_feature_edges(boundary_edges=True, 
+#             non_manifold_edges=False, feature_edges=False, manifold_edges=False)
+#     bndEdgesCon = bndEdges.connectivity()
+#     bndIds = np.unique(bndEdgesCon['RegionId'])
+#     bndDict = {}
+#     for bndId in bndIds:
+#         cellIds = np.where(bndEdgesCon.cell_arrays['RegionId']==bndId)
+#         bndDict[bndId] = bndEdgesCon.extract_cells(cellIds)
+    
+#     return bndDict
+
+################################################################################
+# extract the boundaries, their legnths, and edge normals
+def processBoundaries(mesh, perp=[0,0,1]):
+    # extract edges
     bndEdges = mesh.extract_feature_edges(boundary_edges=True, 
             non_manifold_edges=False, feature_edges=False, manifold_edges=False)
     bndEdgesCon = bndEdges.connectivity()
+
+    # compute normals
+    extBnd = bndEdges.extrude(perp)
+    extBnd.compute_normals(inplace=True, auto_orient_normals=True) 
+    normals = extBnd.cell_arrays['Normals']
+    normals = 0.5*(normals[0::2] + normals[1::2])
+
+    # build boundary dictionaries
     bndIds = np.unique(bndEdgesCon['RegionId'])
-    bndDict = {}
+    bndDict, bndNormsDict, bndLensDict = {}, {}, {}
     for bndId in bndIds:
         cellIds = np.where(bndEdgesCon.cell_arrays['RegionId']==bndId)
         bndDict[bndId] = bndEdgesCon.extract_cells(cellIds)
-    
-    return bndDict
+        bndNormsDict[bndId] = normals[cellIds]
+        bndLensDict[bndId] = getBndLength(bndDict[bndId])
+        
+    return bndDict, bndNormsDict, bndLensDict
 
 ################################################################################
-# convert stresses from the elemental coordinate systems to the global one (slwo)
-def processBoundaries(bndDict, perp=[0,0,1]):
-    bndLenDict, bndNormDict = {}, {}
-    for bndId, bnd in bndDict.items():
-        L = 0
-        edgeNormals = np.zeros((bnd.n_cells,3))
-        com = np.mean(bnd.points, axis=0)
-        dirs = np.zeros(bnd.n_cells)
-
-        # get first normal
-        vi,vj = bnd.extract_cells(0).points
-        nv = np.cross(vi-vj,np.array(perp))
-        edgeNormals[0,:] = nv / np.linalg.norm(nv)
-
-        # get the rest
-        for eid in range(1, bnd.n_cells):
-            vi,vj = bnd.extract_cells(eid).points
-            L += np.linalg.norm(vi-vj)
-            nv = np.cross(vi-vj,np.array(perp))
-            nv /= np.linalg.norm(nv)
-            nv *= np.sign(np.dot(nv,edgeNormals[eid-1,:])) # this causes problems on sharp corners
-            edgeNormals[eid,:] = nv
-            dirs[eid] = np.dot(0.5*(vi+vj)-com, nv)
-
-        edgeNormals = edgeNormals * np.sign(np.mean(dirs)) # point outwards
-        bndNormDict[bndId] = edgeNormals
-        bndLenDict[bndId] = L
-    
-    return bndLenDict, bndNormDict
+def getBndLength(bnd):
+    L = 0
+    for eid in range(bnd.n_cells):
+        vi,vj = bnd.extract_cells(eid).points
+        L += np.linalg.norm(vi-vj)
+    return L
 
 ################################################################################
 # uniformly sample the mesh using Trimesh
