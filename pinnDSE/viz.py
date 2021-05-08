@@ -6,6 +6,10 @@ from time import time
 
 from .util import *
 
+# color schemes
+CATEGORY20 = ['3182bd', 'e6550d', '31a354', '756bb1', '636363', 'c6dbef', 'fdd0a2', 'c7e9c0', 'dadaeb'] # modified
+CATEGORY10 = ['1f77b4', 'ff7f0e', '2ca02c', 'd62728', '9467bd', '8c564b', 'e377c2', '7f7f7f', 'bcbd22', '17becf']
+
 ################################################################################ 
 # plot side-by-side contours of the mesh with specified results and columns
 def plotScalarFields(mesh, resDf, fieldList=['ux', 'uy', 'sxx', 'syy', 'sxy'], cpos='xy', 
@@ -59,14 +63,13 @@ def plotField(x, mesh=None, scalar=None, interpolate=False):
     plotter.show(window_size=(400,400), cpos='xy');
 
 ################################################################################
-def drawBoundaries(bndDict, lineWidth=2, offset=[0,0.05,0]):
+def drawBoundaries(bndDict, lineWidth=2, offset=[0,0.05,0], colors=CATEGORY10):
     # make boundary markers
     labels = [str(bndId) for bndId in bndDict.keys()]
     pos = np.vstack([np.mean(bnd.points, axis=0) for _,bnd in bndDict.items()])
 
     plotter = pv.Plotter(border=False)
     plotter.set_background('white')
-    colors = ['black', 'red', 'green', 'blue', 'orange', 'purple']
     for bndId,color in zip(bndDict.keys(), colors):
         bnd = bndDict[bndId]
         plotter.add_mesh(bnd, show_edges=True, color=color, line_width=lineWidth)
@@ -74,9 +77,10 @@ def drawBoundaries(bndDict, lineWidth=2, offset=[0,0.05,0]):
     plotter.show(window_size=(300,300), cpos='xy');
     
 ################################################################################
-def lossPlot(losshistory, bcNames, dropFirstStep=True, scaleType='log'):
+def lossPlot(losshistory, bcNames, dropFirstStep=True, scaleType='log', number=True, scheme='category10'):
     pdeTermNames=['divSigX','divSigY','resSigX','resSigY','resSigXY']
     columns = pdeTermNames+bcNames
+    if number: columns = [f'{i:02}  {c}' for i,c in enumerate(columns)]
     lossDf = pd.DataFrame(np.vstack(losshistory.loss_train), columns=columns)
     lossDf['step'] = np.array(losshistory.steps)
     if dropFirstStep: lossDf = lossDf.drop(0)
@@ -87,6 +91,8 @@ def lossPlot(losshistory, bcNames, dropFirstStep=True, scaleType='log'):
     ).mark_line().encode(
         x='step:Q',
         y=alt.Y('value:Q', scale=alt.Scale(type=scaleType)),
-        color='loss term:N',
+        color=alt.Color('loss term:N', sort=columns, scale=alt.Scale(scheme=scheme)),
         tooltip=['loss term:N', 'value:Q', 'step:Q']
-        )
+    )
+
+    
