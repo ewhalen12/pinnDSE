@@ -8,12 +8,14 @@ import deepxde as dde
 from time import time
 from scipy.sparse import lil_matrix
 import pickle
+import copy
 
 from .util import *
 
 
 class MeshGeom(dde.geometry.geometry.Geometry):
-    def __init__(self, op2File=None, meshFile=None, pickleFile=None, thickness=None, center=True, scale=True):
+    def __init__(self, op2File=None, meshFile=None, pickleFile=None, thickness=None, 
+                 center=True, scale=True, toGlobal=True):
         if op2File:
             self.op2File = op2File
             self.dim = 2
@@ -21,7 +23,7 @@ class MeshGeom(dde.geometry.geometry.Geometry):
             self.thickness = thickness
 
             start = time()
-            self.mesh, self.resDf = loadOptistructModel(op2File, loadResults=True)
+            self.mesh, self.resDf = loadOptistructModel(op2File, loadResults=True, toGlobal=toGlobal)
             print(f'1 total mesh and result loading: {time()-start}')
 
             if center: 
@@ -36,10 +38,8 @@ class MeshGeom(dde.geometry.geometry.Geometry):
 
             # process edges
             start = time()
-#             self.bndDict = getAllBoundaries(self.mesh)
-#             self.bndLenDict, self.bndNormDict = processBoundaries(self.bndDict)
-            self.bndDict, self.bndNormsDict, self.bndLensDict = processBoundaries(self.mesh)
-            self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLensDict.items()}
+            self.bndDict, self.bndNormsDict = processBoundaries(self.mesh)
+            self.updateBndLengthAndArea()
             print(f'1 total edge processing: {time()-start}')
         else:
             # alternative format load
@@ -47,8 +47,8 @@ class MeshGeom(dde.geometry.geometry.Geometry):
             for key, val in temp.__dict__.items():
                 setattr(self, key, val)
             self.mesh = pv.read(meshFile)
-            self.bndDict, self.bndNormsDict, self.bndLensDict = processBoundaries(self.mesh)
-            self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLensDict.items()}
+            self.bndDict, self.bndNormsDict = processBoundaries(self.mesh)
+            self.updateBndLengthAndArea()
         
     def random_points(self, n, random="pseudo", seed=1234):
         samples = sampleDomain(self.mesh, n, seed=seed)
@@ -83,11 +83,15 @@ class MeshGeom(dde.geometry.geometry.Geometry):
         delattr(self, 'mesh')
         delattr(self, 'bndDict')
         pickle.dump(self, open(pickleFile, 'wb'))
+        
+    def updateBndLengthAndArea(self):
+        self.bndLensDict = {bndId:getBndLength(bnd) for bndId,bnd in self.bndDict.items()}
+        self.bndAreaDict = {i:self.thickness*L for i,L in self.bndLensDict.items()}
 
 ################################################################################ 
 # load the mesh and results from an OptiStruct-generated OP2 file
 # !assumes nodes ids are contiguous and start at 1
-def loadOptistructModel(op2File, loadResults=True):
+def loadOptistructModel(op2File, loadResults=True, toGlobal=True):
     # read geometry
     geom = read_op2_geom(op2File, build_dataframe=False, debug=False)
     start = time()
@@ -98,7 +102,7 @@ def loadOptistructModel(op2File, loadResults=True):
     if loadResults:
         start = time()
         res = read_op2(op2File, build_dataframe=True, debug=False, mode='optistruct');
-        resDf = op2ResToDf(res, geom)
+        resDf = op2ResToDf(res, geom,  toGlobal=toGlobal)
         print(f'2 read results: {time()-start}')
         return mesh, resDf
     else:
@@ -121,7 +125,7 @@ def op2GeomToPv(geom):
 ################################################################################ 
 # load the results from a pyNastran object and convert it to a data frame
 # !assumes nodes ids are contiguous and start at 1
-def op2ResToDf(res, geom, loadNodalStress=True, colNames=['ux', 'uy']):
+def op2ResToDf(res, geom, loadNodalStress=True, colNames=['ux', 'uy'], toGlobal=True):
     resDf = res.displacements[1].data_frame
     resDf = resDf.set_index('NodeID')
     
@@ -132,7 +136,7 @@ def op2ResToDf(res, geom, loadNodalStress=True, colNames=['ux', 'uy']):
         stressDf = stressDf.loc[stressDf.index.get_level_values('NodeID') != 'CEN'] # only consider vertices 
         stressDf = stressDf.reset_index(level='Location', drop=True) # drop location    
         start = time()
-        stressDf = transformStressToMatCordSys(stressDf, geom)        
+        if toGlobal: stressDf = transformStressToMatCordSys(stressDf, geom)        
         print(f'3 coordinate transform: {time()-start}')
         nodeStressDf = stressDf.groupby('NodeID').mean()
         resDf = resDf.join(nodeStressDf)
@@ -174,20 +178,6 @@ def transformStressToMatCordSys(stressDf, geom):
 #     return stressDf
 
 ################################################################################
-# convert stresses from the elemental coordinate systems to the global one (slwo)
-# def getAllBoundaries(mesh):
-#     bndEdges = mesh.extract_feature_edges(boundary_edges=True, 
-#             non_manifold_edges=False, feature_edges=False, manifold_edges=False)
-#     bndEdgesCon = bndEdges.connectivity()
-#     bndIds = np.unique(bndEdgesCon['RegionId'])
-#     bndDict = {}
-#     for bndId in bndIds:
-#         cellIds = np.where(bndEdgesCon.cell_arrays['RegionId']==bndId)
-#         bndDict[bndId] = bndEdgesCon.extract_cells(cellIds)
-    
-#     return bndDict
-
-################################################################################
 # extract the boundaries, their legnths, and edge normals
 def processBoundaries(mesh, perp=[0,0,1]):
     # extract edges
@@ -203,14 +193,13 @@ def processBoundaries(mesh, perp=[0,0,1]):
 
     # build boundary dictionaries
     bndIds = np.unique(bndEdgesCon['RegionId'])
-    bndDict, bndNormsDict, bndLensDict = {}, {}, {}
+    bndDict, bndNormsDict = {}, {}
     for bndId in bndIds:
         cellIds = np.where(bndEdgesCon.cell_arrays['RegionId']==bndId)
         bndDict[bndId] = bndEdgesCon.extract_cells(cellIds)
         bndNormsDict[bndId] = normals[cellIds]
-        bndLensDict[bndId] = getBndLength(bndDict[bndId])
         
-    return bndDict, bndNormsDict, bndLensDict
+    return bndDict, bndNormsDict
 
 ################################################################################
 def getBndLength(bnd):
@@ -255,3 +244,27 @@ def sampleBoundary(bnd, N, bndNormals=None, seed=1234):
             normals[n,:] = bndNormals[eid,:]
 
     return samples, normals
+
+################################################################################
+def getCellMask(bnd, component, func):
+    return [1 if func(bnd.extract_cells(eid).points) else 0 for eid in range(bnd.n_cells)]
+
+################################################################################
+def splitBoundary(bndDict, bndNormsDict, bndId, mask):
+    newBndDict = {}
+    for key,val in bndDict.items():
+        newBndDict[key] = val.copy()
+        
+    # create a new boundary
+    groupA = np.where(np.logical_not(mask))
+    newBndDict[bndId] = bndDict[bndId].extract_cells(groupA)
+    newEdgeId = len(bndDict)
+    groupB = np.where(mask)
+    newBndDict[newEdgeId] = bndDict[bndId].extract_cells(groupB)
+    
+    # update normals in the same way
+    newBndNormsDict = copy.deepcopy(bndNormsDict)
+    newBndNormsDict[bndId] = bndNormsDict[bndId][groupA]
+    newBndNormsDict[newEdgeId] = bndNormsDict[bndId][groupB]
+    
+    return newBndDict, newBndNormsDict

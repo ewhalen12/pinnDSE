@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import altair as alt
 import pyvista as pv
 from time import time
 
@@ -71,3 +72,21 @@ def drawBoundaries(bndDict, lineWidth=2, offset=[0,0.05,0]):
         plotter.add_mesh(bnd, show_edges=True, color=color, line_width=lineWidth)
         plotter.add_point_labels(pos[bndId]+offset, labels[bndId], shadow=False, text_color=color, shape=None, font_size=20)
     plotter.show(window_size=(300,300), cpos='xy');
+    
+################################################################################
+def lossPlot(losshistory, bcNames, dropFirstStep=True, scaleType='log'):
+    pdeTermNames=['divSigX','divSigY','resSigX','resSigY','resSigXY']
+    columns = pdeTermNames+bcNames
+    lossDf = pd.DataFrame(np.vstack(losshistory.loss_train), columns=columns)
+    lossDf['step'] = np.array(losshistory.steps)
+    if dropFirstStep: lossDf = lossDf.drop(0)
+
+    return alt.Chart(lossDf).transform_fold(
+        columns,
+        as_=['loss term', 'value']
+    ).mark_line().encode(
+        x='step:Q',
+        y=alt.Y('value:Q', scale=alt.Scale(type=scaleType)),
+        color='loss term:N',
+        tooltip=['loss term:N', 'value:Q', 'step:Q']
+        )
