@@ -15,7 +15,7 @@ from .util import *
 
 class MeshGeom(dde.geometry.geometry.Geometry):
     def __init__(self, op2File=None, meshFile=None, pickleFile=None, thickness=None, 
-                 center=True, scale=True, toGlobal=True):
+                 center=True, scale=True, toGlobal=True, altFormat=1):
         if op2File:
             self.op2File = op2File
             self.dim = 2
@@ -41,14 +41,22 @@ class MeshGeom(dde.geometry.geometry.Geometry):
             self.bndDict, self.bndNormsDict = processBoundaries(self.mesh)
             self.updateBndLengthAndArea()
             print(f'1 total edge processing: {time()-start}')
-        else:
-            # alternative format load
+        elif altFormat==1:
+            # alternative format #1 load
             temp = pickle.load(open(pickleFile, 'rb'))
             for key, val in temp.__dict__.items():
                 setattr(self, key, val)
             self.mesh = pv.read(meshFile)
             self.bndDict, self.bndNormsDict = processBoundaries(self.mesh)
             self.updateBndLengthAndArea()
+        
+        else:
+            # alternative format #2 load
+            temp = pickle.load(open(pickleFile, 'rb'))
+            for key, val in temp.__dict__.items():
+                setattr(self, key, val)
+            self.mesh = pv.PolyData(self._meshData[0], faces=self._meshData[1])
+            self.bndDict = {bndId:pv.UnstructuredGrid(data[0], np.array([3]*data[1]), data[2]) for bndId,data in self._bndPointCellData.items()}
         
     def random_points(self, n, random="pseudo", seed=1234):
         samples = sampleDomain(self.mesh, n, seed=seed)
@@ -81,6 +89,16 @@ class MeshGeom(dde.geometry.geometry.Geometry):
         pickleFile = pickleFile if pickleFile else self.op2File.replace('.op2', '.p')
         self.mesh.save(meshFile)
         delattr(self, 'mesh')
+        delattr(self, 'bndDict')
+        pickle.dump(self, open(pickleFile, 'wb'))
+        
+    def saveInAltFormat2(self, pickleFile=None):
+        # store mesh and boundary data as arrays since vtk objects do not work with pickle
+        # we'll turn them back into pv meshes upon loading
+        pickleFile = pickleFile if pickleFile else self.op2File.replace('.op2', '.p')
+        self._meshData = (self.mesh.points, self.mesh.faces)
+        delattr(self, 'mesh')
+        self._bndPointCellData = {bndId:(bnd.cells, bnd.n_cells, bnd.points) for bndId,bnd in self.bndDict.items()}
         delattr(self, 'bndDict')
         pickle.dump(self, open(pickleFile, 'wb'))
         
