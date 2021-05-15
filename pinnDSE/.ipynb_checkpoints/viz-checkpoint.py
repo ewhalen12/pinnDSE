@@ -13,28 +13,40 @@ CATEGORY10 = ['1f77b4', 'ff7f0e', '2ca02c', 'd62728', '9467bd', '8c564b', 'e377c
 ################################################################################ 
 # plot side-by-side contours of the mesh with specified results and columns
 def plotScalarFields(mesh, resDf, fieldList=['ux', 'uy', 'sxx', 'syy', 'sxy'], cpos='xy', 
-                     showEdges=False, pointSize=4, bar='hor'):
-    plotter = pv.Plotter(shape=(1,len(fieldList)), border=False)
-    for i,field in enumerate(fieldList):
-        plotter.subplot(0,i)
-        plotter.set_background('white')
-        plotter.add_text(field, color='k', font_size=7)
-        if mesh.n_cells == mesh.n_points:
-            # point cloud
-            plotter.add_mesh(mesh.copy(), scalars=resDf[field], 
-                             render_points_as_spheres=True, point_size=pointSize)
-        else:
-            # mesh
-            plotter.add_mesh(mesh.copy(), scalars=resDf[field], show_edges=showEdges)
-            
-        if bar=='ver':
-            plotter.add_scalar_bar(n_labels=2, label_font_size=10, width=0.1, height=0.3, 
-                               vertical=True, position_x=0.65, fmt="%.1e", color='k')
-        else:
-            plotter.add_scalar_bar(n_labels=2, label_font_size=10, width=0.3, height=0.1, 
-                        font_family='arial', vertical=False, position_x=0.6, fmt="%.1e", color='k')
+                     showEdges=False, pointSize=4, bar='hor', bndDict=None, shape=None, size=200):
+    if shape==None: shape=(1,len(fieldList))
+    print(shape)
+    plotter = pv.Plotter(shape=shape, border=False)
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            index = i*shape[1]+j
+            if index < len(fieldList):
+                field = fieldList[index]
+
+                plotter.subplot(i,j)
+                plotter.set_background('white')
+                plotter.add_text(field, color='k', font_size=7)
+                if mesh.n_cells == mesh.n_points:
+                    # point cloud
+                    plotter.add_mesh(mesh.copy(), scalars=resDf[field], 
+                                     render_points_as_spheres=True, point_size=pointSize)
+                else:
+                    # mesh
+                    plotter.add_mesh(mesh.copy(), scalars=resDf[field], show_edges=showEdges)
+
+                if bar=='ver':
+                    plotter.add_scalar_bar(n_labels=2, label_font_size=10, width=0.1, height=0.3, 
+                                       vertical=True, position_x=0.65, fmt="%.1e", color='k')
+                else:
+                    plotter.add_scalar_bar(n_labels=2, label_font_size=10, width=0.3, height=0.1, 
+                                font_family='arial', vertical=False, position_x=0.6, fmt="%.1e", color='k')
+
+                if bndDict:
+                    for bndId,bnd in bndDict.items():
+                         plotter.add_mesh(bnd.copy(), color='k')
     
-    plotter.show(window_size=(200*len(fieldList),200), cpos=cpos);
+    windowSize = (shape[1]*size,shape[0]*size)
+    plotter.show(window_size=windowSize, cpos=cpos);
     
 ################################################################################ 
 # plot a single mesh or point cloud with optional scalar field
@@ -77,8 +89,8 @@ def drawBoundaries(bndDict, lineWidth=2, offset=[0,0.05,0], colors=CATEGORY10):
     plotter.show(window_size=(300,300), cpos='xy');
     
 ################################################################################
-def lossPlot(losshistory, bcNames, dropFirstStep=True, scaleType='log', number=True, scheme='category10'):
-    pdeTermNames=['divSigX','divSigY','resSigX','resSigY','resSigXY']
+def lossPlot(losshistory, bcNames, dropFirstStep=False, scaleType='log', 
+             number=True, pdeTermNames=['divSigX','divSigY','resSigX','resSigY','resSigXY'], scheme='category10'):
     columns = pdeTermNames+bcNames
     if number: columns = [f'{i:02}  {c}' for i,c in enumerate(columns)]
     lossDf = pd.DataFrame(np.vstack(losshistory.loss_train), columns=columns)

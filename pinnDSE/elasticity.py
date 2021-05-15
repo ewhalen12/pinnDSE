@@ -1,10 +1,12 @@
 import numpy as np
-# import pandas as pd
-# import pyvista as pv
 import deepxde as dde
 from deepxde.utils import get_num_args
 from deepxde.backend import tf
 from deepxde import config
+from deepxde.boundary_conditions import PointSetBC
+
+from .bc import *
+
 
 
 class StrctPDE(dde.data.pde.PDE):
@@ -62,8 +64,17 @@ class StrctPDE(dde.data.pde.PDE):
             self.bndNormalsDict[bndId] = normals
     
         # organize by which bc they belong to
-        x_bcs = [self.bndSampleDict[bc.bndId] for bc in self.bcs] # bcs will have a bndId attribute
-        n_bcs = [self.bndNormalsDict[bc.bndId] for bc in self.bcs]
+#         x_bcs = [self.bndSampleDict[bc.bndId] for bc in self.bcs] # bcs will have a bndId attribute
+#         n_bcs = [self.bndNormalsDict[bc.bndId] for bc in self.bcs]
+        x_bcs, n_bcs = [], []
+        for bc in self.bcs:
+            if isinstance(bc, (TractionBC, SupportBC)): 
+                x_bcs.append(self.bndSampleDict[bc.bndId])
+                n_bcs.append(self.bndNormalsDict[bc.bndId])
+            elif isinstance(bc, PointSetBC): 
+                x_bcs.append(bc.points)
+                n_bcs.append(np.zeros_like(bc.points))
+            
         self.num_bcs = list(map(len, x_bcs))
         self.train_x_bc = (np.vstack(x_bcs) if x_bcs else np.empty([0, self.train_x_all.shape[-1]]))
         self.train_n_bc = (np.vstack(n_bcs) if n_bcs else np.empty([0, self.train_x_all.shape[-1]]))
