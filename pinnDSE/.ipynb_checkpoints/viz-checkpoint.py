@@ -13,10 +13,11 @@ CATEGORY10 = ['1f77b4', 'ff7f0e', '2ca02c', 'd62728', '9467bd', '8c564b', 'e377c
 ################################################################################ 
 # plot side-by-side contours of the mesh with specified results and columns
 def plotScalarFields(mesh, resDf, fieldList=['ux', 'uy', 'sxx', 'syy', 'sxy'], cpos='xy', 
-                     showEdges=False, pointSize=4, bar='hor', bndDict=None, shape=None, size=200):
+                     showEdges=False, pointSize=4, bar='hor', bndDict=None, shape=None, size=200,
+                     notebook=True):
     if shape==None: shape=(1,len(fieldList))
     print(shape)
-    plotter = pv.Plotter(shape=shape, border=False)
+    plotter = pv.Plotter(shape=shape, border=False, notebook=notebook)
     for i in range(shape[0]):
         for j in range(shape[1]):
             index = i*shape[1]+j
@@ -50,11 +51,11 @@ def plotScalarFields(mesh, resDf, fieldList=['ux', 'uy', 'sxx', 'syy', 'sxy'], c
     
 ################################################################################ 
 # plot a single mesh or point cloud with optional scalar field
-def plotField(x, mesh=None, scalar=None, interpolate=False):
+def plotField(x, mesh=None, scalar=None, interpolate=False, notebook=True):
     # point coordinates
     pc = pv.PolyData(addZ(x))
 
-    plotter = pv.Plotter(border=False)
+    plotter = pv.Plotter(border=False, notebook=notebook)
     plotter.set_background('white')
     if interpolate:
         pc['field'] = scalar
@@ -75,12 +76,12 @@ def plotField(x, mesh=None, scalar=None, interpolate=False):
     plotter.show(window_size=(400,400), cpos='xy');
 
 ################################################################################
-def drawBoundaries(bndDict, lineWidth=2, offset=[0,0.05,0], colors=CATEGORY10):
+def drawBoundaries(bndDict, lineWidth=2, offset=[0,0.05,0], colors=CATEGORY10, notebook=True):
     # make boundary markers
     labels = [str(bndId) for bndId in bndDict.keys()]
     pos = np.vstack([np.mean(bnd.points, axis=0) for _,bnd in bndDict.items()])
 
-    plotter = pv.Plotter(border=False)
+    plotter = pv.Plotter(border=False, notebook=notebook)
     plotter.set_background('white')
     for bndId,color in zip(bndDict.keys(), colors):
         bnd = bndDict[bndId]
